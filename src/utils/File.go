@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,7 +51,37 @@ func generateMap() map[string]int {
 	return m
 }
 
-func ProcessFile(tensor *[80][168][15]float64, fileName string) {
+func NormalizeByC(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64) {
+	cMax := []float64{}
+	for ci := 0; ci < 15; ci++ {
+		max := float64(0.0)
+		for si := 0; si < 80; si++ {
+			for ti := 0; ti < 168; ti++ {
+				if tensor[si][ti][ci] > max {
+					max = tensor[si][ti][ci]
+				}
+			}
+		}
+		cMax = append(cMax, max)
+	}
+	for si := 0; si < 80; si++ {
+		for ti := 0; ti < 168; ti++ {
+			for ci := 0; ci < 15; ci++ {
+				if tensorGT[si][ti][ci] >= 0 {
+					tensorGT[si][ti][ci] = tensorGT[si][ti][ci] / cMax[ci]
+
+					if rand.Float64() > 0.8 {
+						tensor[si][ti][ci] = -1.0
+					} else {
+						tensor[si][ti][ci] = tensor[si][ti][ci] / cMax[ci]
+					}
+				}
+			}
+		}
+	}
+}
+
+func ProcessFile(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64, fileName string) {
 	cMap := generateMap()
 
 	file, err := os.Open(fileName)
@@ -80,9 +111,11 @@ func ProcessFile(tensor *[80][168][15]float64, fileName string) {
 			}
 			fv, err := strconv.ParseFloat(v, 32)
 			if err != nil {
-				tensor[si][t][c] = float64(-1)
+				tensor[si][t][c] = float64(-2)
+				tensorGT[si][t][c] = float64(-2)
 			} else {
-				tensor[si][t][c] = float64(fv / 100)
+				tensor[si][t][c] = float64(fv)
+				tensorGT[si][t][c] = float64(fv)
 			}
 		}
 	}

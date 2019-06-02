@@ -13,7 +13,7 @@ func check(err error) {
 	}
 }
 
-func getLoss(tensor *[80][168][15]float64, U [][]float64, V [][]float64, W [][]float64, k int) (loss float64, lossTensor [80][168][15]float64) {
+func getLossTrainning(tensor *[80][168][15]float64, U [][]float64, V [][]float64, W [][]float64, k int) (loss float64, lossTensor [80][168][15]float64) {
 	loss = float64(0)
 	lossTensor = [80][168][15]float64{}
 	count := 0
@@ -39,6 +39,30 @@ func getLoss(tensor *[80][168][15]float64, U [][]float64, V [][]float64, W [][]f
 	}
 
 	return loss / float64(count), lossTensor
+}
+
+func getLossValidate(tensor [80][168][15]float64, tensorGT [80][168][15]float64, U [][]float64, V [][]float64, W [][]float64, k int) float64 {
+	loss := float64(0)
+	count := 0
+
+	for si := 0; si < 80; si++ {
+		for ti := 0; ti < 168; ti++ {
+			for ci := 0; ci < 15; ci++ {
+				if tensor[si][ti][ci] >= -1.1 && tensor[si][ti][ci] < 0 {
+					count++
+					ev := float64(0)
+					for ki := 0; ki < k; ki++ {
+						ev += (U[si][ki]*V[ti][ki] + W[ci][ki]*V[ti][ki] + W[ci][ki]*U[si][ki])
+					}
+
+					delta := math.Abs(float64(ev - tensorGT[si][ti][ci]))
+
+					loss += (delta * delta)
+				}
+			}
+		}
+	}
+	return loss / float64(count)
 }
 
 func gradientUpdateU(U *[][]float64, V [][]float64, W [][]float64, lossTensor *[80][168][15]float64, k int, tensor *[80][168][15]float64) {
@@ -72,7 +96,7 @@ func gradientUpdateV(V *[][]float64, U [][]float64, W [][]float64, lossTensor *[
 				}
 			}
 
-			(*V)[ti][ki] += float64(0.0000001 * grad)
+			(*V)[ti][ki] += float64(0.00001 * grad)
 		}
 	}
 }
@@ -95,13 +119,13 @@ func gradientUpdateW(W *[][]float64, U [][]float64, V [][]float64, lossTensor *[
 	}
 }
 
-func decompostion(tensor *[80][168][15]float64, k int) {
+func decompostion(tensor *[80][168][15]float64, k int) ([][]float64, [][]float64, [][]float64) {
 	U := utils.InitalizeMatrix(80, k, true)
 	V := utils.InitalizeMatrix(168, k, true)
 	W := utils.InitalizeMatrix(15, k, true)
 
-	loss, lossTensor := getLoss(tensor, U, V, W, k)
-	for loss > 1 {
+	loss, lossTensor := getLossTrainning(tensor, U, V, W, k)
+	for loss > 0.1 {
 		cacheU := utils.MatrixCopy(U)
 		cacheV := utils.MatrixCopy(V)
 		cacheW := utils.MatrixCopy(W)
@@ -110,20 +134,26 @@ func decompostion(tensor *[80][168][15]float64, k int) {
 		gradientUpdateV(&V, cacheU, cacheW, &lossTensor, k, tensor)
 		gradientUpdateW(&W, cacheU, cacheV, &lossTensor, k, tensor)
 
-		loss, lossTensor = getLoss(tensor, U, V, W, k)
+		loss, lossTensor = getLossTrainning(tensor, U, V, W, k)
 		fmt.Println("loss", loss)
 	}
+
+	return U, V, W
 }
 
 func main() {
 	fileNames := utils.FileNames()
 	fmt.Println(len(fileNames))
 	tensor := [80][168][15]float64{}
+	tensorGT := [80][168][15]float64{}
 
-	for j, fileName := range fileNames[1:] {
+	for _, fileName := range fileNames[1:] {
 		fmt.Println(fileName)
-		utils.ProcessFile(&tensor, fileName)
+		utils.ProcessFile(&tensor, &tensorGT, fileName)
 	}
+	utils.NormalizeByC(&tensor, &tensorGT)
 
-	decompostion(&tensor, 30)
+	U, V, W := decompostion(&tensor, 30)
+	loss := getLossValidate(tensor, tensorGT, U, V, W, 30)
+	fmt.Println(loss)
 }

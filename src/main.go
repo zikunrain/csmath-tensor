@@ -56,7 +56,7 @@ func check(err error) {
 func FileNames() []string {
 	var files []string
 
-	root := "data"
+	root := "src/data"
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		files = append(files, path)
 		return nil
@@ -66,7 +66,7 @@ func FileNames() []string {
 	return files
 }
 
-func ProcessFile(tensor [80][168][14]float32, fileName string, cMap map[string]int) {
+func ProcessFile(tensor *[80][168][15]float32, fileName string, cMap map[string]int) {
 	file, err := os.Open(fileName)
 	check(err)
 
@@ -83,15 +83,22 @@ func ProcessFile(tensor [80][168][14]float32, fileName string, cMap map[string]i
 
 		params := strings.Split(scanner.Text(), ",")
 		t, err := strconv.Atoi(params[1])
+		date, err := strconv.Atoi(params[0])
+		t += (date - 20141224) * 24
 		check(err)
 		c, _ := cMap[params[2]]
 		values := params[3:]
 		for si, v := range values {
+			if si >= 80 {
+				break
+			}
 			fv, err := strconv.ParseFloat(v, 32)
-			check(err) // if err set -1?
-			tensor[si][t][c] = float32(fv)
+			if err != nil {
+				tensor[si][t][c] = float32(-1)
+			} else {
+				tensor[si][t][c] = float32(fv)
+			}
 		}
-
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -101,17 +108,20 @@ func ProcessFile(tensor [80][168][14]float32, fileName string, cMap map[string]i
 
 func main() {
 	fileNames := FileNames()
+	fmt.Println(len(fileNames))
 	// s := 80
 	// t := 24 * 7
 	// c := 14
-	tensor := [80][168][14]float32{}
+	tensor := [80][168][15]float32{}
 	cMap := generateMap()
 
 	for j, fileName := range fileNames[1:] {
+		fmt.Println(fileName)
 		if j%100 == 0 {
 			fmt.Println(j, len(fileNames))
 		}
-		ProcessFile(tensor, fileName, cMap)
+		ProcessFile(&tensor, fileName, cMap)
 		// process current file
 	}
+	fmt.Print(tensor)
 }

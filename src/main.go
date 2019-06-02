@@ -1,51 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
+	"math"
+	"utils"
 )
-
-// type Tensor struct {
-// 	// LenS   int
-// 	// LenT   int
-// 	// LenC   int
-// 	Values [80][168][14]float32
-// }
-
-// func NewTensor(lenS int, lenT int, lenC int) *Tensor {
-// 	t := new(Tensor)
-// 	t.LenS = lenS
-// 	t.LenT = lenT
-// 	t.LenC = lenC // <- a very sensible default value
-// 	t.Values =
-// 	return t
-// }
-
-func generateMap() map[string]int {
-	var m map[string]int /*创建集合 */
-	m = make(map[string]int)
-	m["AQI"] = 0
-	m["PM2.5"] = 1
-	m["PM2.5_24h"] = 2
-	m["PM10"] = 3
-	m["PM10_24h"] = 4
-	m["SO2"] = 5
-	m["SO2_24h"] = 6
-	m["NO2"] = 7
-	m["NO2_24h"] = 8
-	m["O3"] = 9
-	m["O3_24h"] = 10
-	m["O3_8h"] = 11
-	m["O3_8h_24h"] = 12
-	m["CO"] = 13
-	m["CO_24h"] = 14
-	return m
-}
 
 func check(err error) {
 	if err != nil {
@@ -53,75 +13,117 @@ func check(err error) {
 	}
 }
 
-func FileNames() []string {
-	var files []string
+func getLoss(tensor *[80][168][15]float64, U [][]float64, V [][]float64, W [][]float64, k int) (loss float64, lossTensor [80][168][15]float64) {
+	loss = float64(0)
+	lossTensor = [80][168][15]float64{}
+	count := 0
 
-	root := "src/data"
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		files = append(files, path)
-		return nil
-	})
+	for si := 0; si < 80; si++ {
+		for ti := 0; ti < 168; ti++ {
+			for ci := 0; ci < 15; ci++ {
+				if tensor[si][ti][ci] >= 0 {
+					count++
+					ev := float64(0)
+					for ki := 0; ki < k; ki++ {
+						ev += (U[si][ki]*V[ti][ki] + W[ci][ki]*V[ti][ki] + W[ci][ki]*U[si][ki])
+					}
+					delta := math.Abs(float64(ev - tensor[si][ti][ci]))
 
-	check(err)
-	return files
-}
-
-func ProcessFile(tensor *[80][168][15]float32, fileName string, cMap map[string]int) {
-	file, err := os.Open(fileName)
-	check(err)
-
-	fmt.Println(fileName)
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-
-	l := 0
-	for scanner.Scan() {
-		l++
-		if l == 1 { // header
-			continue
-		}
-
-		params := strings.Split(scanner.Text(), ",")
-		t, err := strconv.Atoi(params[1])
-		date, err := strconv.Atoi(params[0])
-		t += (date - 20141224) * 24
-		check(err)
-		c, _ := cMap[params[2]]
-		values := params[3:]
-		for si, v := range values {
-			if si >= 80 {
-				break
-			}
-			fv, err := strconv.ParseFloat(v, 32)
-			if err != nil {
-				tensor[si][t][c] = float32(-1)
-			} else {
-				tensor[si][t][c] = float32(fv)
+					loss += (delta * delta)
+					lossTensor[si][ti][ci] = tensor[si][ti][ci] - ev
+				} else {
+					lossTensor[si][ti][ci] = -1.0
+				}
 			}
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
+	return loss / float64(count), lossTensor
+}
+
+func gradientUpdateU(U *[][]float64, V [][]float64, W [][]float64, lossTensor *[80][168][15]float64, k int, tensor *[80][168][15]float64) {
+	for si := 0; si < len(*U); si++ {
+		for ki := 0; ki < k; ki++ {
+			grad := float64(0)
+
+			for ti := 0; ti < 168; ti++ {
+				for ci := 0; ci < 15; ci++ {
+					if tensor[si][ti][ci] >= 0 {
+						grad += (lossTensor[si][ti][ci] * float64(V[ti][ki]+W[ci][ki]))
+					}
+				}
+			}
+
+			(*U)[si][ki] += float64(0.0000001 * grad)
+		}
+	}
+}
+
+func gradientUpdateV(V *[][]float64, U [][]float64, W [][]float64, lossTensor *[80][168][15]float64, k int, tensor *[80][168][15]float64) {
+	for ti := 0; ti < len(*V); ti++ {
+		for ki := 0; ki < k; ki++ {
+			grad := float64(0)
+
+			for si := 0; si < 80; si++ {
+				for ci := 0; ci < 15; ci++ {
+					if tensor[si][ti][ci] >= 0 {
+						grad += (lossTensor[si][ti][ci] * float64(U[si][ki]+W[ci][ki]))
+					}
+				}
+			}
+
+			(*V)[ti][ki] += float64(0.0000001 * grad)
+		}
+	}
+}
+
+func gradientUpdateW(W *[][]float64, U [][]float64, V [][]float64, lossTensor *[80][168][15]float64, k int, tensor *[80][168][15]float64) {
+	for ci := 0; ci < len(*W); ci++ {
+		for ki := 0; ki < k; ki++ {
+			grad := float64(0)
+
+			for si := 0; si < 80; si++ {
+				for ti := 0; ti < 168; ti++ {
+					if tensor[si][ti][ci] >= 0 {
+						grad += (lossTensor[si][ti][ci] * float64(U[si][ki]+V[ti][ki]))
+					}
+				}
+			}
+
+			(*W)[ci][ki] += float64(0.000001 * grad)
+		}
+	}
+}
+
+func decompostion(tensor *[80][168][15]float64, k int) {
+	U := utils.InitalizeMatrix(80, k, true)
+	V := utils.InitalizeMatrix(168, k, true)
+	W := utils.InitalizeMatrix(15, k, true)
+
+	loss, lossTensor := getLoss(tensor, U, V, W, k)
+	for loss > 1 {
+		cacheU := utils.MatrixCopy(U)
+		cacheV := utils.MatrixCopy(V)
+		cacheW := utils.MatrixCopy(W)
+
+		gradientUpdateU(&U, cacheV, cacheW, &lossTensor, k, tensor)
+		gradientUpdateV(&V, cacheU, cacheW, &lossTensor, k, tensor)
+		gradientUpdateW(&W, cacheU, cacheV, &lossTensor, k, tensor)
+
+		loss, lossTensor = getLoss(tensor, U, V, W, k)
+		fmt.Println("loss", loss)
 	}
 }
 
 func main() {
-	fileNames := FileNames()
+	fileNames := utils.FileNames()
 	fmt.Println(len(fileNames))
-	// s := 80
-	// t := 24 * 7
-	// c := 14
-	tensor := [80][168][15]float32{}
-	cMap := generateMap()
+	tensor := [80][168][15]float64{}
 
 	for j, fileName := range fileNames[1:] {
 		fmt.Println(fileName)
-		if j%100 == 0 {
-			fmt.Println(j, len(fileNames))
-		}
-		ProcessFile(&tensor, fileName, cMap)
-		// process current file
+		utils.ProcessFile(&tensor, fileName)
 	}
-	fmt.Print(tensor)
+
+	decompostion(&tensor, 30)
 }

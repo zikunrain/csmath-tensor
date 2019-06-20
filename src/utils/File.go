@@ -51,7 +51,7 @@ func generateMap() map[string]int {
 	return m
 }
 
-func NormalizeByC(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64) {
+func NormalizeByC(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64, rate float64) {
 	cMax := []float64{}
 	for ci := 0; ci < 15; ci++ {
 		max := float64(0.0)
@@ -70,7 +70,7 @@ func NormalizeByC(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64) 
 				if tensorGT[si][ti][ci] >= 0 {
 					tensorGT[si][ti][ci] = tensorGT[si][ti][ci] / cMax[ci]
 
-					if rand.Float64() > 0.8 {
+					if rand.Float64() > rate {
 						tensor[si][ti][ci] = -1.0
 					} else {
 						tensor[si][ti][ci] = tensor[si][ti][ci] / cMax[ci]

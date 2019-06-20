@@ -1,11 +1,19 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"strconv"
 	"utils"
 )
+
+func Decimal(value float64) float64 {
+	value, _ = strconv.ParseFloat(fmt.Sprintf("%.6f", value), 64)
+	return value
+}
 
 func check(err error) {
 	if err != nil {
@@ -41,7 +49,7 @@ func getLossTrainning(tensor *[80][168][15]float64, U [][]float64, V [][]float64
 	return loss / float64(count), lossTensor
 }
 
-func getLossValidate(tensor [80][168][15]float64, tensorGT [80][168][15]float64, U [][]float64, V [][]float64, W [][]float64, k int) float64 {
+func getLossValidate(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64, U [][]float64, V [][]float64, W [][]float64, k int) float64 {
 	loss := float64(0)
 	count := 0
 
@@ -78,7 +86,7 @@ func gradientUpdateU(U *[][]float64, V [][]float64, W [][]float64, lossTensor *[
 				}
 			}
 
-			(*U)[si][ki] += float64(0.0000001 * grad)
+			(*U)[si][ki] += float64(0.00001 * grad)
 		}
 	}
 }
@@ -114,18 +122,18 @@ func gradientUpdateW(W *[][]float64, U [][]float64, V [][]float64, lossTensor *[
 				}
 			}
 
-			(*W)[ci][ki] += float64(0.000001 * grad)
+			(*W)[ci][ki] += float64(0.00001 * grad)
 		}
 	}
 }
 
-func decompostion(tensor *[80][168][15]float64, k int) ([][]float64, [][]float64, [][]float64) {
+func decompostion(tensor *[80][168][15]float64, tensorGT *[80][168][15]float64, k int, writer *csv.Writer) ([][]float64, [][]float64, [][]float64) {
 	U := utils.InitalizeMatrix(80, k, true)
 	V := utils.InitalizeMatrix(168, k, true)
 	W := utils.InitalizeMatrix(15, k, true)
 
 	loss, lossTensor := getLossTrainning(tensor, U, V, W, k)
-	for loss > 0.1 {
+	for loss > 0.05 {
 		cacheU := utils.MatrixCopy(U)
 		cacheV := utils.MatrixCopy(V)
 		cacheW := utils.MatrixCopy(W)
@@ -135,7 +143,16 @@ func decompostion(tensor *[80][168][15]float64, k int) ([][]float64, [][]float64
 		gradientUpdateW(&W, cacheU, cacheV, &lossTensor, k, tensor)
 
 		loss, lossTensor = getLossTrainning(tensor, U, V, W, k)
-		fmt.Println("loss", loss)
+		testLoss := getLossValidate(tensor, tensorGT, U, V, W, k)
+
+		fmt.Println("loss", loss, testLoss)
+
+		line := []string{}
+		lossStr := strconv.FormatFloat(Decimal(loss), 'f', -1, 64)
+		testLossStr := strconv.FormatFloat(Decimal(testLoss), 'f', -1, 64)
+		line = append(line, lossStr)
+		line = append(line, testLossStr)
+		writer.Write(line)
 	}
 
 	return U, V, W
@@ -151,9 +168,21 @@ func main() {
 		fmt.Println(fileName)
 		utils.ProcessFile(&tensor, &tensorGT, fileName)
 	}
-	utils.NormalizeByC(&tensor, &tensorGT)
+	utils.NormalizeByC(&tensor, &tensorGT, 0.1)
 
-	U, V, W := decompostion(&tensor, 30)
-	loss := getLossValidate(tensor, tensorGT, U, V, W, 30)
+	file, err := os.Create("output/result-0.1.csv")
+	check(err)
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// for _, value := range data {
+	// 		err := writer.Write(value)
+	// 		check(err)
+	// }
+
+	U, V, W := decompostion(&tensor, &tensorGT, 30, writer)
+	loss := getLossValidate(&tensor, &tensorGT, U, V, W, 30)
 	fmt.Println(loss)
 }
